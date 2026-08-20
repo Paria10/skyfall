@@ -435,6 +435,11 @@ function hasCollision() {
   });
 }
 
+function hasLeftPath() {
+  const playerY = state.height * .76;
+  return Math.abs(state.playerOffset) > pathHalfWidthAt(playerY);
+}
+
 function endGame(resultLabel = 'RUN ENDED') {
   state.mode = 'gameover';
   state.keys.clear();
@@ -539,11 +544,6 @@ function update(deltaSeconds) {
   state.velocity *= Math.pow(.001, deltaSeconds);
   state.playerOffset += state.velocity * deltaSeconds;
 
-  const playerY = state.height * .76;
-  const maxOffset = pathHalfWidthAt(playerY) - Math.min(27, Math.max(18, state.width * .053)) - 5;
-  state.playerOffset = Math.max(-maxOffset, Math.min(maxOffset, state.playerOffset));
-  if (Math.abs(state.playerOffset) === maxOffset) state.velocity = 0;
-
   const metres = getMetres();
   metresValue.textContent = `${metres}m`;
   updateLevelProgress(metres);
@@ -551,7 +551,7 @@ function update(deltaSeconds) {
     state.newHighScore = true;
     updateHighScore(metres);
   }
-  if (hasCollision()) {
+  if (hasLeftPath() || hasCollision()) {
     endGame();
   } else if (selectedLevel && metres >= selectedLevel.targetMetres) {
     markLevelOneComplete();
