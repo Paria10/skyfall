@@ -3,7 +3,7 @@
 ## Project Goal
 
 Build a soft-casual browser runner game. A ball moves automatically along a
-straight path while the player steers left and right to avoid obstacles. The
+path that can curve while the player steers left and right to avoid obstacles. The
 game shows elapsed seconds above the play area and starts from a level list.
 
 ## Editable Project Decisions
@@ -13,7 +13,9 @@ game shows elapsed seconds above the play area and starts from a level list.
 - **Controls:** Left and Right arrow keys steer the ball.
 - **Run controls:** Play starts a three-second countdown, then becomes Pause.
   Restart resets the run to its ready state; it never starts a run automatically.
-- **Path:** use a straight safe corridor; leaving it ends the run.
+- **Path:** use a moving safe corridor with randomly spaced curves. Each curve
+  randomly bends left or right at a random intensity, then returns to centre.
+  Leaving the corridor ends the run.
 - **Obstacles:** use static blockers in the initial level. Hitting one ends
   the run.
 - **Run outcome:** show a game-over overlay with retry and level-list actions.

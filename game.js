@@ -18,12 +18,18 @@ const level = {
   speedMultiplier: 1.2,
   pathTopWidth: 0.14,
   pathBottomWidth: 0.42,
+  curveStartGap: { min: 8, max: 14 },
+  curveGap: { min: 7, max: 13 },
+  curveBendLength: { min: 3, max: 5 },
+  curveReturnLength: { min: 3, max: 5 },
+  curveIntensity: { min: 0.09, max: 0.19 },
   obstacleOffsets: [-.56, 0, .56],
   obstacleGap: { min: 38, max: 58 },
 };
 
 const PATH_LINE_SPACING = 78;
 const PATH_SCROLL_PER_DISTANCE = 4.4;
+const PATH_START_Y = -70;
 const HIGH_SCORE_KEY = 'skyfall-high-score';
 
 function loadHighScore() {
@@ -69,6 +75,8 @@ const state = {
   mode: 'ready',
   countdown: 3,
   newHighScore: false,
+  curves: [],
+  nextCurveMetres: 0,
 };
 
 function resizeCanvas() {
@@ -87,22 +95,49 @@ function pathHalfWidthAt(y) {
   return state.width * width;
 }
 
+function smoothstep(value) {
+  const clamped = Math.max(0, Math.min(1, value));
+  return clamped * clamped * (3 - 2 * clamped);
+}
+
+function trackScrollAt(y) {
+  return state.distance * PATH_SCROLL_PER_DISTANCE - (y - PATH_START_Y);
+}
+
+function pathCenterAt(y) {
+  const trackScroll = trackScrollAt(y);
+  const curveOffset = state.curves.reduce((offset, curve) => {
+    const start = curve.startMetres * PATH_LINE_SPACING;
+    const bendEnd = start + curve.bendMetres * PATH_LINE_SPACING;
+    const returnEnd = bendEnd + curve.returnMetres * PATH_LINE_SPACING;
+
+    if (trackScroll < start || trackScroll > returnEnd) return offset;
+    if (trackScroll <= bendEnd) return offset + smoothstep((trackScroll - start) / (bendEnd - start)) * curve.offset;
+    return offset + (1 - smoothstep((trackScroll - bendEnd) / (returnEnd - bendEnd))) * curve.offset;
+  }, 0);
+
+  return state.width / 2 + state.width * curveOffset;
+}
+
 function drawPath() {
-  const pathTop = -2;
+  const pathTop = PATH_START_Y;
   const pathBottom = state.height + 2;
-  const center = state.width / 2;
-  const topHalfWidth = pathHalfWidthAt(pathTop);
-  const bottomHalfWidth = pathHalfWidthAt(pathBottom);
-  const topLeft = center - topHalfWidth;
-  const topRight = center + topHalfWidth;
-  const bottomLeft = center - bottomHalfWidth;
-  const bottomRight = center + bottomHalfWidth;
+  const slices = 48;
+  const step = (pathBottom - pathTop) / slices;
+  const leftEdge = [];
+  const rightEdge = [];
+
+  for (let index = 0; index <= slices; index += 1) {
+    const y = pathTop + step * index;
+    const center = pathCenterAt(y);
+    const halfWidth = pathHalfWidthAt(y);
+    leftEdge.push({ x: center - halfWidth, y });
+    rightEdge.push({ x: center + halfWidth, y });
+  }
 
   context.beginPath();
-  context.moveTo(topLeft, pathTop);
-  context.lineTo(topRight, pathTop);
-  context.lineTo(bottomRight, pathBottom);
-  context.lineTo(bottomLeft, pathBottom);
+  leftEdge.forEach((point, index) => index ? context.lineTo(point.x, point.y) : context.moveTo(point.x, point.y));
+  [...rightEdge].reverse().forEach((point) => context.lineTo(point.x, point.y));
   context.closePath();
   context.fillStyle = '#fff8df';
   context.fill();
@@ -121,12 +156,10 @@ function drawPath() {
   context.strokeStyle = '#f3d792';
   context.lineWidth = 4;
   context.beginPath();
-  context.moveTo(topLeft, pathTop);
-  context.lineTo(bottomLeft, pathBottom);
+  leftEdge.forEach((point, index) => index ? context.lineTo(point.x, point.y) : context.moveTo(point.x, point.y));
   context.stroke();
   context.beginPath();
-  context.moveTo(topRight, pathTop);
-  context.lineTo(bottomRight, pathBottom);
+  rightEdge.forEach((point, index) => index ? context.lineTo(point.x, point.y) : context.moveTo(point.x, point.y));
   context.stroke();
 }
 
@@ -135,7 +168,7 @@ function drawBall() {
   const bounce = Math.abs(Math.sin(state.elapsed * 7.2)) * 7;
   const y = restingY - bounce;
   const radius = Math.min(27, Math.max(18, state.width * 0.053));
-  const x = state.width / 2 + state.playerOffset;
+  const x = pathCenterAt(restingY) + state.playerOffset;
 
   context.beginPath();
   context.ellipse(x, restingY + radius * 1.05, radius * .9, radius * .3, 0, 0, Math.PI * 2);
@@ -156,7 +189,7 @@ function drawBall() {
 }
 
 function getObstacleBaseY(obstacle) {
-  const pathStart = -70;
+  const pathStart = PATH_START_Y;
   const exitMargin = Math.max(120, state.width * .18);
   const pathTravelLength = state.height - pathStart + exitMargin;
   const pathScroll = state.distance * PATH_SCROLL_PER_DISTANCE;
@@ -168,7 +201,7 @@ function getObstacleBaseY(obstacle) {
 function getCubeGeometry(obstacle, baseY) {
   const position = baseY / state.height;
   const pathHalfWidth = pathHalfWidthAt(baseY);
-  const centerX = state.width / 2 + pathHalfWidth * obstacle.offset;
+  const centerX = pathCenterAt(baseY) + pathHalfWidth * obstacle.offset;
   const scale = .62 + position;
   const size = Math.max(34, state.width * .11 * scale);
   const cubeHeight = size * 1.05;
@@ -224,6 +257,39 @@ function drawObstacles(foreground) {
   });
 }
 
+function randomBetween(range) {
+  return range.min + Math.random() * (range.max - range.min);
+}
+
+function addRandomCurve() {
+  const direction = Math.random() < .5 ? -1 : 1;
+  const bendMetres = randomBetween(level.curveBendLength);
+  const returnMetres = randomBetween(level.curveReturnLength);
+  state.curves.push({
+    startMetres: state.nextCurveMetres,
+    bendMetres,
+    returnMetres,
+    offset: direction * randomBetween(level.curveIntensity),
+  });
+  state.nextCurveMetres += bendMetres + returnMetres + randomBetween(level.curveGap);
+}
+
+function resetCurves() {
+  state.curves = [];
+  state.nextCurveMetres = randomBetween(level.curveStartGap);
+  addRandomCurve();
+}
+
+function updateCurves() {
+  const currentMetres = getMetres();
+  const horizonMetres = currentMetres + 24;
+  while (state.nextCurveMetres <= horizonMetres) addRandomCurve();
+  state.curves = state.curves.filter((curve) => {
+    const curveEnd = curve.startMetres + curve.bendMetres + curve.returnMetres;
+    return curveEnd >= currentMetres - 12;
+  });
+}
+
 function addObstacle() {
   const offsetIndex = Math.floor(Math.random() * level.obstacleOffsets.length);
   state.obstacles.push({
@@ -236,7 +302,7 @@ function addObstacle() {
 
 function updateObstacles() {
   while (state.distance >= state.nextObstacleDistance) addObstacle();
-  const pathStart = -70;
+  const pathStart = PATH_START_Y;
   const exitMargin = Math.max(120, state.width * .18);
   const pathTravelLength = state.height - pathStart + exitMargin;
   const scroll = state.distance * PATH_SCROLL_PER_DISTANCE;
@@ -245,7 +311,7 @@ function updateObstacles() {
 
 function hasCollision() {
   const ballDepth = state.height * .76;
-  const ballX = state.width / 2 + state.playerOffset;
+  const ballX = pathCenterAt(ballDepth) + state.playerOffset;
   const radius = Math.min(27, Math.max(18, state.width * .053));
   const ballDepthRadius = radius * .65;
   return state.obstacles.some((obstacle) => {
@@ -279,6 +345,7 @@ function resetGame() {
   state.elapsed = 0;
   state.obstacles = [];
   state.nextObstacleDistance = 0;
+  resetCurves();
   state.mode = 'ready';
   state.countdown = 3;
   state.newHighScore = false;
@@ -333,6 +400,7 @@ function update(deltaSeconds) {
   const speedStage = Math.floor(state.elapsed / level.speedIncreaseInterval);
   const currentSpeed = level.distancePerSecond * level.speedMultiplier ** speedStage;
   state.distance += currentSpeed * deltaSeconds;
+  updateCurves();
   updateObstacles();
   const direction = Number(state.keys.has('ArrowRight')) - Number(state.keys.has('ArrowLeft'));
   state.velocity += direction * state.width * 3.2 * deltaSeconds;
@@ -378,6 +446,7 @@ playButton.addEventListener('click', togglePlay);
 restartButton.addEventListener('click', resetGame);
 
 resizeCanvas();
+resetCurves();
 for (let index = 0; index < 30; index += 1) {
   const piece = document.createElement('span');
   piece.className = 'confetti-piece';
