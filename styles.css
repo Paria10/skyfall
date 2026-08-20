@@ -28,15 +28,89 @@ body {
 }
 
 .hud {
+  position: relative;
   min-height: 54px;
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 
-.game-controls { display: flex; gap: 9px; }
+.header-actions, .game-controls { display: flex; align-items: center; gap: 9px; }
 
-.run-counters { display: flex; align-items: baseline; gap: 12px; }
+.selected-option {
+  position: absolute;
+  left: 50%;
+  margin: 0;
+  transform: translateX(-50%);
+  color: #31575d;
+  font-size: .86rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.menu-wrap { position: relative; }
+
+.menu-button {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  padding: 10px;
+  place-content: center;
+  gap: 4px;
+  border-radius: 50%;
+  color: #568285;
+  background: #fffdf9;
+  box-shadow: 0 5px 0 #d4e6e1;
+}
+
+.menu-button span {
+  display: block;
+  width: 16px;
+  height: 2px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+.game-menu {
+  position: absolute;
+  z-index: 4;
+  top: calc(100% + 10px);
+  left: 0;
+  min-width: 150px;
+  padding: 7px;
+  border-radius: 16px;
+  background: #fffdf9;
+  box-shadow: 0 12px 28px rgba(34, 83, 85, .2);
+}
+
+.game-menu[hidden] { display: none; }
+
+.game-menu button {
+  width: 100%;
+  padding: 10px 12px;
+  text-align: left;
+  color: #31575d;
+  background: transparent;
+  box-shadow: none;
+}
+
+.game-menu button:hover, .game-menu button:focus-visible { background: #e9f8f5; }
+
+.run-counters { display: flex; align-items: center; gap: 12px; }
+
+.metric-stack { display: grid; justify-items: end; }
+
+.level-progress {
+  margin: -2px 0 0;
+  color: #ef8c78;
+  font-size: clamp(1.35rem, 3.8vw, 2rem);
+  font-weight: 900;
+  line-height: 1;
+}
+
+.level-progress[hidden] { display: none; }
+
+.run-counters.is-level .timer { font-size: clamp(1.5rem, 4.2vw, 2.2rem); }
 
 .header-high-score {
   margin: 0;
@@ -168,6 +242,16 @@ button {
 }
 
 button:focus-visible { outline: 3px solid #285e65; outline-offset: 3px; }
+
+button:disabled {
+  color: #9aafae;
+  background: #e4edeb;
+  box-shadow: 0 5px 0 #cddbd7;
+  cursor: not-allowed;
+}
+
+.next-level-button { display: block; width: 100%; margin-top: 16px; }
+.next-level-button[hidden] { display: none; }
 
 @media (max-width: 480px) {
   .game-shell { padding-inline: 12px; }

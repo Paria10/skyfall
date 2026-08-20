@@ -1,15 +1,24 @@
 const canvas = document.querySelector('#game-canvas');
 const context = canvas.getContext('2d');
 const metresValue = document.querySelector('#metres-value');
+const runCounters = document.querySelector('.run-counters');
+const levelProgress = document.querySelector('#level-progress');
+const selectedOption = document.querySelector('#selected-option');
 const headerHighScore = document.querySelector('#header-high-score');
 const gameOver = document.querySelector('#game-over');
 const retryButton = document.querySelector('#retry-button');
+const nextLevelButton = document.querySelector('#next-level-button');
 const gameOverMetres = document.querySelector('#game-over-metres');
 const highScoreValue = document.querySelector('#high-score');
 const confetti = document.querySelector('#confetti');
+const menuButton = document.querySelector('#menu-button');
+const gameMenu = document.querySelector('#game-menu');
+const freePlayButton = document.querySelector('#free-play-button');
+const levelOneButton = document.querySelector('#level-one-button');
 const playButton = document.querySelector('#play-button');
 const restartButton = document.querySelector('#restart-button');
 const countdown = document.querySelector('#countdown');
+const runEndedLabel = document.querySelector('#run-ended-label');
 
 const level = {
   targetDistance: 1000,
@@ -27,20 +36,46 @@ const level = {
   obstacleGap: { min: 38, max: 58 },
 };
 
+const LEVELS = {
+  level1: {
+    targetMetres: 50,
+    obstacleOffsets: [0, -.56, -.56, .56, -.56, .56, .56, 0],
+    obstacleSpacing: 6,
+  },
+};
+
 const PATH_LINE_SPACING = 78;
 const PATH_SCROLL_PER_DISTANCE = 4.4;
 const PATH_START_Y = -70;
-const HIGH_SCORE_KEY = 'skyfall-high-score';
+const HIGH_SCORE_KEY_PREFIX = 'skyfall-high-score';
+const LEGACY_HIGH_SCORE_KEY = 'skyfall-high-score';
+const LEVEL_ONE_COMPLETE_KEY = 'skyfall-level-one-complete';
 
-function loadHighScore() {
+function highScoreKey(gameType) {
+  return `${HIGH_SCORE_KEY_PREFIX}-${gameType}`;
+}
+
+function loadHighScore(gameType) {
   try {
-    return Math.max(0, Number.parseInt(localStorage.getItem(HIGH_SCORE_KEY), 10) || 0);
+    const savedScore = localStorage.getItem(highScoreKey(gameType));
+    const legacyScore = gameType === 'freeplay' ? localStorage.getItem(LEGACY_HIGH_SCORE_KEY) : null;
+    return Math.max(0, Number.parseInt(savedScore ?? legacyScore, 10) || 0);
   } catch {
     return 0;
   }
 }
 
-let highScore = loadHighScore();
+let highScore = loadHighScore('freeplay');
+
+function loadLevelOneCompletion() {
+  try {
+    return localStorage.getItem(LEVEL_ONE_COMPLETE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+let levelOneComplete = loadLevelOneCompletion();
 
 function renderHighScore() {
   headerHighScore.textContent = `High score: ${highScore}m`;
@@ -54,7 +89,7 @@ function updateHighScore(metres) {
   highScore = metres;
   renderHighScore();
   try {
-    localStorage.setItem(HIGH_SCORE_KEY, String(highScore));
+    localStorage.setItem(highScoreKey(state.gameType), String(highScore));
   } catch {
     // Continue without persistence when browser storage is unavailable.
   }
@@ -77,7 +112,45 @@ const state = {
   newHighScore: false,
   curves: [],
   nextCurveMetres: 0,
+  gameType: 'freeplay',
 };
+
+function activeLevel() {
+  return state.gameType === 'freeplay' ? null : LEVELS[state.gameType];
+}
+
+function updateNextLevelButton() {
+  nextLevelButton.hidden = !(state.gameType === 'level1' && levelOneComplete);
+}
+
+function markLevelOneComplete() {
+  levelOneComplete = true;
+  try {
+    localStorage.setItem(LEVEL_ONE_COMPLETE_KEY, 'true');
+  } catch {
+    // Continue without persistence when browser storage is unavailable.
+  }
+}
+
+function updateSelectedOption() {
+  const selectedLevel = activeLevel();
+  selectedOption.textContent = selectedLevel ? 'Level 1' : 'Free Play';
+  runCounters.classList.toggle('is-level', Boolean(selectedLevel));
+  levelProgress.hidden = !selectedLevel;
+  levelProgress.textContent = '0%';
+  updateNextLevelButton();
+}
+
+function loadSelectedHighScore() {
+  highScore = loadHighScore(state.gameType);
+  renderHighScore();
+}
+
+function updateLevelProgress(metres) {
+  const selectedLevel = activeLevel();
+  if (!selectedLevel) return;
+  levelProgress.textContent = `${Math.min(100, Math.floor((metres / selectedLevel.targetMetres) * 100))}%`;
+}
 
 function resizeCanvas() {
   const bounds = canvas.getBoundingClientRect();
@@ -193,7 +266,10 @@ function getObstacleBaseY(obstacle) {
   const exitMargin = Math.max(120, state.width * .18);
   const pathTravelLength = state.height - pathStart + exitMargin;
   const pathScroll = state.distance * PATH_SCROLL_PER_DISTANCE;
-  const travel = pathScroll - obstacle.spawnScroll;
+  const spawnScroll = obstacle.targetMetres === undefined
+    ? obstacle.spawnScroll
+    : obstacle.targetMetres * PATH_LINE_SPACING - (state.height * .76 - pathStart);
+  const travel = pathScroll - spawnScroll;
   if (travel < 0 || travel > pathTravelLength) return null;
   return pathStart + travel;
 }
@@ -290,6 +366,35 @@ function updateCurves() {
   });
 }
 
+function setupLevelObstacles() {
+  const selectedLevel = activeLevel();
+  if (!selectedLevel) return;
+  state.obstacles = selectedLevel.obstacleOffsets.map((offset, index) => ({
+    offset,
+    targetMetres: (index + 1) * selectedLevel.obstacleSpacing,
+  }));
+}
+
+function drawLevelEndMarker() {
+  const selectedLevel = activeLevel();
+  if (!selectedLevel) return;
+  const baseY = getObstacleBaseY({ targetMetres: selectedLevel.targetMetres });
+  if (baseY === null) return;
+  const scale = Math.max(.45, Math.min(1.2, baseY / state.height));
+  const fontSize = Math.max(24, state.width * .1 * scale);
+
+  context.save();
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.font = `900 ${fontSize}px ui-rounded, system-ui, sans-serif`;
+  context.lineWidth = Math.max(2, fontSize * .16);
+  context.strokeStyle = '#fffdf9';
+  context.fillStyle = '#ef8c78';
+  context.strokeText('THE END', pathCenterAt(baseY), baseY);
+  context.fillText('THE END', pathCenterAt(baseY), baseY);
+  context.restore();
+}
+
 function addObstacle() {
   const offsetIndex = Math.floor(Math.random() * level.obstacleOffsets.length);
   state.obstacles.push({
@@ -301,12 +406,15 @@ function addObstacle() {
 }
 
 function updateObstacles() {
-  while (state.distance >= state.nextObstacleDistance) addObstacle();
+  if (!activeLevel()) {
+    while (state.distance >= state.nextObstacleDistance) addObstacle();
+  }
   const pathStart = PATH_START_Y;
   const exitMargin = Math.max(120, state.width * .18);
   const pathTravelLength = state.height - pathStart + exitMargin;
   const scroll = state.distance * PATH_SCROLL_PER_DISTANCE;
-  state.obstacles = state.obstacles.filter((obstacle) => scroll - obstacle.spawnScroll <= pathTravelLength);
+  state.obstacles = state.obstacles.filter((obstacle) => obstacle.targetMetres !== undefined
+    || scroll - obstacle.spawnScroll <= pathTravelLength);
 }
 
 function hasCollision() {
@@ -327,12 +435,14 @@ function hasCollision() {
   });
 }
 
-function endGame() {
+function endGame(resultLabel = 'RUN ENDED') {
   state.mode = 'gameover';
   state.keys.clear();
+  runEndedLabel.textContent = resultLabel;
   gameOverMetres.textContent = `${getMetres()}m`;
   highScoreValue.textContent = `${state.newHighScore ? 'NEW High score' : 'High score'}: ${highScore}m`;
   confetti.hidden = !state.newHighScore;
+  updateNextLevelButton();
   gameOver.hidden = false;
   updateControls();
   retryButton.focus();
@@ -345,16 +455,34 @@ function resetGame() {
   state.elapsed = 0;
   state.obstacles = [];
   state.nextObstacleDistance = 0;
-  resetCurves();
+  if (activeLevel()) {
+    state.curves = [];
+    setupLevelObstacles();
+  } else {
+    resetCurves();
+  }
   state.mode = 'ready';
   state.countdown = 3;
   state.newHighScore = false;
   state.keys.clear();
+  runEndedLabel.textContent = 'RUN ENDED';
   gameOver.hidden = true;
   confetti.hidden = true;
   countdown.hidden = true;
   metresValue.textContent = '0m';
+  updateLevelProgress(0);
   updateControls();
+}
+
+function closeMenu() {
+  gameMenu.hidden = true;
+  menuButton.setAttribute('aria-expanded', 'false');
+}
+
+function toggleMenu() {
+  const willOpen = gameMenu.hidden;
+  gameMenu.hidden = !willOpen;
+  menuButton.setAttribute('aria-expanded', String(willOpen));
 }
 
 function updateControls() {
@@ -399,8 +527,12 @@ function update(deltaSeconds) {
   state.elapsed += deltaSeconds;
   const speedStage = Math.floor(state.elapsed / level.speedIncreaseInterval);
   const currentSpeed = level.distancePerSecond * level.speedMultiplier ** speedStage;
-  state.distance += currentSpeed * deltaSeconds;
-  updateCurves();
+  const selectedLevel = activeLevel();
+  const targetDistance = selectedLevel
+    ? selectedLevel.targetMetres * PATH_LINE_SPACING / PATH_SCROLL_PER_DISTANCE
+    : Infinity;
+  state.distance = Math.min(targetDistance, state.distance + currentSpeed * deltaSeconds);
+  if (!selectedLevel) updateCurves();
   updateObstacles();
   const direction = Number(state.keys.has('ArrowRight')) - Number(state.keys.has('ArrowLeft'));
   state.velocity += direction * state.width * 3.2 * deltaSeconds;
@@ -414,11 +546,17 @@ function update(deltaSeconds) {
 
   const metres = getMetres();
   metresValue.textContent = `${metres}m`;
+  updateLevelProgress(metres);
   if (metres > highScore) {
     state.newHighScore = true;
     updateHighScore(metres);
   }
-  if (hasCollision()) endGame();
+  if (hasCollision()) {
+    endGame();
+  } else if (selectedLevel && metres >= selectedLevel.targetMetres) {
+    markLevelOneComplete();
+    endGame('LEVEL 1 COMPLETE');
+  }
 }
 
 function render(now) {
@@ -427,6 +565,7 @@ function render(now) {
   update(deltaSeconds);
   context.clearRect(0, 0, state.width, state.height);
   drawPath();
+  drawLevelEndMarker();
   drawObstacles(false);
   drawBall();
   drawObstacles(true);
@@ -442,6 +581,21 @@ window.addEventListener('keydown', (event) => {
 });
 window.addEventListener('keyup', (event) => state.keys.delete(event.key));
 retryButton.addEventListener('click', resetGame);
+menuButton.addEventListener('click', toggleMenu);
+freePlayButton.addEventListener('click', () => {
+  state.gameType = 'freeplay';
+  loadSelectedHighScore();
+  updateSelectedOption();
+  resetGame();
+  closeMenu();
+});
+levelOneButton.addEventListener('click', () => {
+  state.gameType = 'level1';
+  loadSelectedHighScore();
+  updateSelectedOption();
+  resetGame();
+  closeMenu();
+});
 playButton.addEventListener('click', togglePlay);
 restartButton.addEventListener('click', resetGame);
 
@@ -457,5 +611,6 @@ for (let index = 0; index < 30; index += 1) {
   confetti.append(piece);
 }
 renderHighScore();
+updateSelectedOption();
 updateControls();
 requestAnimationFrame(render);
