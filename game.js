@@ -1,0 +1,392 @@
+const canvas = document.querySelector('#game-canvas');
+const context = canvas.getContext('2d');
+const metresValue = document.querySelector('#metres-value');
+const headerHighScore = document.querySelector('#header-high-score');
+const gameOver = document.querySelector('#game-over');
+const retryButton = document.querySelector('#retry-button');
+const gameOverMetres = document.querySelector('#game-over-metres');
+const highScoreValue = document.querySelector('#high-score');
+const confetti = document.querySelector('#confetti');
+const playButton = document.querySelector('#play-button');
+const restartButton = document.querySelector('#restart-button');
+const countdown = document.querySelector('#countdown');
+
+const level = {
+  targetDistance: 1000,
+  distancePerSecond: 16.7,
+  speedIncreaseInterval: 5,
+  speedMultiplier: 1.2,
+  pathTopWidth: 0.14,
+  pathBottomWidth: 0.42,
+  obstacleOffsets: [-.56, 0, .56],
+  obstacleGap: { min: 38, max: 58 },
+};
+
+const PATH_LINE_SPACING = 78;
+const PATH_SCROLL_PER_DISTANCE = 4.4;
+const HIGH_SCORE_KEY = 'skyfall-high-score';
+
+function loadHighScore() {
+  try {
+    return Math.max(0, Number.parseInt(localStorage.getItem(HIGH_SCORE_KEY), 10) || 0);
+  } catch {
+    return 0;
+  }
+}
+
+let highScore = loadHighScore();
+
+function renderHighScore() {
+  headerHighScore.textContent = `High score: ${highScore}m`;
+}
+
+function getMetres() {
+  return Math.floor((state.distance * PATH_SCROLL_PER_DISTANCE) / PATH_LINE_SPACING);
+}
+
+function updateHighScore(metres) {
+  highScore = metres;
+  renderHighScore();
+  try {
+    localStorage.setItem(HIGH_SCORE_KEY, String(highScore));
+  } catch {
+    // Continue without persistence when browser storage is unavailable.
+  }
+}
+
+const state = {
+  distance: 0,
+  playerOffset: 0,
+  velocity: 0,
+  keys: new Set(),
+  lastFrame: 0,
+  width: 0,
+  height: 0,
+  pixelRatio: 1,
+  elapsed: 0,
+  obstacles: [],
+  nextObstacleDistance: 0,
+  mode: 'ready',
+  countdown: 3,
+  newHighScore: false,
+};
+
+function resizeCanvas() {
+  const bounds = canvas.getBoundingClientRect();
+  state.pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+  state.width = bounds.width;
+  state.height = bounds.height;
+  canvas.width = Math.round(bounds.width * state.pixelRatio);
+  canvas.height = Math.round(bounds.height * state.pixelRatio);
+  context.setTransform(state.pixelRatio, 0, 0, state.pixelRatio, 0, 0);
+}
+
+function pathHalfWidthAt(y) {
+  const depth = Math.max(0, Math.min(1, y / state.height));
+  const width = level.pathTopWidth + (level.pathBottomWidth - level.pathTopWidth) * depth;
+  return state.width * width;
+}
+
+function drawPath() {
+  const pathTop = -2;
+  const pathBottom = state.height + 2;
+  const center = state.width / 2;
+  const topHalfWidth = pathHalfWidthAt(pathTop);
+  const bottomHalfWidth = pathHalfWidthAt(pathBottom);
+  const topLeft = center - topHalfWidth;
+  const topRight = center + topHalfWidth;
+  const bottomLeft = center - bottomHalfWidth;
+  const bottomRight = center + bottomHalfWidth;
+
+  context.beginPath();
+  context.moveTo(topLeft, pathTop);
+  context.lineTo(topRight, pathTop);
+  context.lineTo(bottomRight, pathBottom);
+  context.lineTo(bottomLeft, pathBottom);
+  context.closePath();
+  context.fillStyle = '#fff8df';
+  context.fill();
+
+  context.save();
+  context.clip();
+  const stripeSpacing = PATH_LINE_SPACING;
+  const stripeHeight = 11;
+  const scroll = (state.distance * PATH_SCROLL_PER_DISTANCE) % stripeSpacing;
+  for (let y = -stripeSpacing + scroll; y < state.height + stripeSpacing; y += stripeSpacing) {
+    context.fillStyle = 'rgba(244, 211, 145, .45)';
+    context.fillRect(0, y, state.width, stripeHeight);
+  }
+  context.restore();
+
+  context.strokeStyle = '#f3d792';
+  context.lineWidth = 4;
+  context.beginPath();
+  context.moveTo(topLeft, pathTop);
+  context.lineTo(bottomLeft, pathBottom);
+  context.stroke();
+  context.beginPath();
+  context.moveTo(topRight, pathTop);
+  context.lineTo(bottomRight, pathBottom);
+  context.stroke();
+}
+
+function drawBall() {
+  const restingY = state.height * 0.76;
+  const bounce = Math.abs(Math.sin(state.elapsed * 7.2)) * 7;
+  const y = restingY - bounce;
+  const radius = Math.min(27, Math.max(18, state.width * 0.053));
+  const x = state.width / 2 + state.playerOffset;
+
+  context.beginPath();
+  context.ellipse(x, restingY + radius * 1.05, radius * .9, radius * .3, 0, 0, Math.PI * 2);
+  context.fillStyle = 'rgba(89, 124, 106, .20)';
+  context.fill();
+
+  const ball = context.createRadialGradient(x - radius * .32, y - radius * .42, radius * .1, x, y, radius * 1.1);
+  ball.addColorStop(0, '#fff8f3');
+  ball.addColorStop(.24, '#ffc2ad');
+  ball.addColorStop(1, '#f38777');
+  context.beginPath();
+  context.arc(x, y, radius, 0, Math.PI * 2);
+  context.fillStyle = ball;
+  context.fill();
+  context.strokeStyle = 'rgba(255, 255, 255, .75)';
+  context.lineWidth = 3;
+  context.stroke();
+}
+
+function getObstacleBaseY(obstacle) {
+  const pathStart = -70;
+  const exitMargin = Math.max(120, state.width * .18);
+  const pathTravelLength = state.height - pathStart + exitMargin;
+  const pathScroll = state.distance * PATH_SCROLL_PER_DISTANCE;
+  const travel = pathScroll - obstacle.spawnScroll;
+  if (travel < 0 || travel > pathTravelLength) return null;
+  return pathStart + travel;
+}
+
+function getCubeGeometry(obstacle, baseY) {
+  const position = baseY / state.height;
+  const pathHalfWidth = pathHalfWidthAt(baseY);
+  const centerX = state.width / 2 + pathHalfWidth * obstacle.offset;
+  const scale = .62 + position;
+  const size = Math.max(34, state.width * .11 * scale);
+  const cubeHeight = size * 1.05;
+  const depthY = -size * .24;
+  const backWidth = size * .62;
+
+  const frontBottomLeft = { x: centerX - size / 2, y: baseY };
+  const frontBottomRight = { x: centerX + size / 2, y: baseY };
+  const frontTopLeft = { x: frontBottomLeft.x, y: baseY - cubeHeight };
+  const frontTopRight = { x: frontBottomRight.x, y: baseY - cubeHeight };
+  const backCenterX = centerX;
+  const backTopLeft = { x: backCenterX - backWidth / 2, y: frontTopLeft.y + depthY };
+  const backTopRight = { x: backCenterX + backWidth / 2, y: frontTopRight.y + depthY };
+
+  return {
+    front: [frontBottomLeft, frontBottomRight, frontTopRight, frontTopLeft],
+    top: [frontTopLeft, frontTopRight, backTopRight, backTopLeft],
+    shadow: { centerX, baseY, size },
+  };
+}
+
+function fillFace(points, color) {
+  context.beginPath();
+  points.forEach((point, index) => index ? context.lineTo(point.x, point.y) : context.moveTo(point.x, point.y));
+  context.closePath();
+  context.fillStyle = color;
+  context.fill();
+  context.strokeStyle = 'rgba(255, 255, 255, .72)';
+  context.lineWidth = 2;
+  context.stroke();
+}
+
+function drawCube(obstacle, baseY) {
+  const cube = getCubeGeometry(obstacle, baseY);
+  const { centerX, size } = cube.shadow;
+
+  context.beginPath();
+  context.ellipse(centerX, baseY + size * .12, size * .68, size * .18, 0, 0, Math.PI * 2);
+  context.fillStyle = 'rgba(89, 124, 106, .18)';
+  context.fill();
+
+  fillFace(cube.top, '#ffd5a5');
+  fillFace(cube.front, '#ed927f');
+}
+
+function drawObstacles(foreground) {
+  const ballY = state.height * .76 - Math.abs(Math.sin(state.elapsed * 7.2)) * 7;
+  const radius = Math.min(27, Math.max(18, state.width * .053));
+  state.obstacles.forEach((obstacle) => {
+    const baseY = getObstacleBaseY(obstacle);
+    if (baseY === null || (baseY > ballY + radius) !== foreground) return;
+    drawCube(obstacle, baseY);
+  });
+}
+
+function addObstacle() {
+  const offsetIndex = Math.floor(Math.random() * level.obstacleOffsets.length);
+  state.obstacles.push({
+    offset: level.obstacleOffsets[offsetIndex],
+    spawnScroll: state.nextObstacleDistance * PATH_SCROLL_PER_DISTANCE,
+  });
+  const { min, max } = level.obstacleGap;
+  state.nextObstacleDistance += min + Math.random() * (max - min);
+}
+
+function updateObstacles() {
+  while (state.distance >= state.nextObstacleDistance) addObstacle();
+  const pathStart = -70;
+  const exitMargin = Math.max(120, state.width * .18);
+  const pathTravelLength = state.height - pathStart + exitMargin;
+  const scroll = state.distance * PATH_SCROLL_PER_DISTANCE;
+  state.obstacles = state.obstacles.filter((obstacle) => scroll - obstacle.spawnScroll <= pathTravelLength);
+}
+
+function hasCollision() {
+  const ballDepth = state.height * .76;
+  const ballX = state.width / 2 + state.playerOffset;
+  const radius = Math.min(27, Math.max(18, state.width * .053));
+  const ballDepthRadius = radius * .65;
+  return state.obstacles.some((obstacle) => {
+    const baseY = getObstacleBaseY(obstacle);
+    if (baseY === null || baseY > ballDepth + ballDepthRadius) return false;
+    const cube = getCubeGeometry(obstacle, baseY);
+    const cubeDepthStart = baseY - cube.shadow.size * .52;
+    const cubeDepthEnd = baseY;
+    const overlapsDepth = cubeDepthStart <= ballDepth + ballDepthRadius
+      && cubeDepthEnd >= ballDepth - ballDepthRadius;
+    const overlapsWidth = Math.abs(ballX - cube.shadow.centerX) <= radius + cube.shadow.size / 2;
+    return overlapsDepth && overlapsWidth;
+  });
+}
+
+function endGame() {
+  state.mode = 'gameover';
+  state.keys.clear();
+  gameOverMetres.textContent = `${getMetres()}m`;
+  highScoreValue.textContent = `${state.newHighScore ? 'NEW High score' : 'High score'}: ${highScore}m`;
+  confetti.hidden = !state.newHighScore;
+  gameOver.hidden = false;
+  updateControls();
+  retryButton.focus();
+}
+
+function resetGame() {
+  state.distance = 0;
+  state.playerOffset = 0;
+  state.velocity = 0;
+  state.elapsed = 0;
+  state.obstacles = [];
+  state.nextObstacleDistance = 0;
+  state.mode = 'ready';
+  state.countdown = 3;
+  state.newHighScore = false;
+  state.keys.clear();
+  gameOver.hidden = true;
+  confetti.hidden = true;
+  countdown.hidden = true;
+  metresValue.textContent = '0m';
+  updateControls();
+}
+
+function updateControls() {
+  const isPlaying = state.mode === 'playing' || state.mode === 'countdown';
+  playButton.textContent = isPlaying ? 'Pause' : 'Play';
+  playButton.setAttribute('aria-label', isPlaying ? 'Pause game' : 'Play game');
+}
+
+function startCountdown() {
+  state.mode = 'countdown';
+  state.countdown = 3;
+  countdown.textContent = '3';
+  countdown.hidden = false;
+  updateControls();
+}
+
+function togglePlay() {
+  if (state.mode === 'ready') {
+    startCountdown();
+  } else if (state.mode === 'countdown' || state.mode === 'playing') {
+    state.mode = 'paused';
+    countdown.hidden = true;
+    updateControls();
+  } else if (state.mode === 'paused') {
+    startCountdown();
+  }
+}
+
+function update(deltaSeconds) {
+  if (state.mode === 'countdown') {
+    state.countdown -= deltaSeconds;
+    if (state.countdown <= 0) {
+      state.mode = 'playing';
+      countdown.hidden = true;
+      updateControls();
+    } else {
+      countdown.textContent = String(Math.ceil(state.countdown));
+    }
+    return;
+  }
+  if (state.mode !== 'playing') return;
+  state.elapsed += deltaSeconds;
+  const speedStage = Math.floor(state.elapsed / level.speedIncreaseInterval);
+  const currentSpeed = level.distancePerSecond * level.speedMultiplier ** speedStage;
+  state.distance += currentSpeed * deltaSeconds;
+  updateObstacles();
+  const direction = Number(state.keys.has('ArrowRight')) - Number(state.keys.has('ArrowLeft'));
+  state.velocity += direction * state.width * 3.2 * deltaSeconds;
+  state.velocity *= Math.pow(.001, deltaSeconds);
+  state.playerOffset += state.velocity * deltaSeconds;
+
+  const playerY = state.height * .76;
+  const maxOffset = pathHalfWidthAt(playerY) - Math.min(27, Math.max(18, state.width * .053)) - 5;
+  state.playerOffset = Math.max(-maxOffset, Math.min(maxOffset, state.playerOffset));
+  if (Math.abs(state.playerOffset) === maxOffset) state.velocity = 0;
+
+  const metres = getMetres();
+  metresValue.textContent = `${metres}m`;
+  if (metres > highScore) {
+    state.newHighScore = true;
+    updateHighScore(metres);
+  }
+  if (hasCollision()) endGame();
+}
+
+function render(now) {
+  const deltaSeconds = Math.min((now - state.lastFrame) / 1000 || 0, .05);
+  state.lastFrame = now;
+  update(deltaSeconds);
+  context.clearRect(0, 0, state.width, state.height);
+  drawPath();
+  drawObstacles(false);
+  drawBall();
+  drawObstacles(true);
+  requestAnimationFrame(render);
+}
+
+window.addEventListener('resize', resizeCanvas);
+window.addEventListener('keydown', (event) => {
+  if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+    event.preventDefault();
+    state.keys.add(event.key);
+  }
+});
+window.addEventListener('keyup', (event) => state.keys.delete(event.key));
+retryButton.addEventListener('click', resetGame);
+playButton.addEventListener('click', togglePlay);
+restartButton.addEventListener('click', resetGame);
+
+resizeCanvas();
+for (let index = 0; index < 30; index += 1) {
+  const piece = document.createElement('span');
+  piece.className = 'confetti-piece';
+  piece.style.left = `${Math.random() * 100}%`;
+  piece.style.setProperty('--drift', `${-70 + Math.random() * 140}px`);
+  piece.style.setProperty('--delay', `${Math.random() * -1700}ms`);
+  piece.style.setProperty('--color', ['#ef8c78', '#f4c85b', '#8bcfc5', '#b7a0e5'][index % 4]);
+  confetti.append(piece);
+}
+renderHighScore();
+updateControls();
+requestAnimationFrame(render);

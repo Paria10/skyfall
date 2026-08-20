@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#dff4f2" />
+    <title>Skyfall Runner</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="game-shell">
+      <header class="hud" aria-live="polite">
+        <div class="game-controls" aria-label="Game controls">
+          <button id="play-button" type="button">Play</button>
+          <button id="restart-button" class="restart-button" type="button">Restart</button>
+        </div>
+        <div class="run-counters">
+          <p id="header-high-score" class="header-high-score">High score: 0m</p>
+          <p id="metres-value" class="timer">0m</p>
+        </div>
+      </header>
+
+      <section class="game-field" aria-label="Skyfall gameplay field">
+        <canvas id="game-canvas" aria-label="A ball travelling on a straight path"></canvas>
+        <div id="countdown" class="countdown" aria-live="assertive" hidden>3</div>
+        <div id="game-over" class="game-over" role="dialog" aria-modal="true" aria-label="Run ended" hidden>
+          <div id="confetti" class="confetti" aria-hidden="true" hidden></div>
+          <div class="game-over-card">
+            <p class="hud-label">RUN ENDED</p>
+            <p id="game-over-metres" class="game-over-metres">0m</p>
+            <p id="high-score" class="high-score">High score: 0m</p>
+            <button id="retry-button" type="button">Play again</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="game.js"></script>
+  </body>
+</html>
