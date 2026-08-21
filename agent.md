@@ -2,63 +2,49 @@
 
 ## Project Goal
 
-Build a soft-casual browser runner game. A ball moves automatically along a
-path that can curve while the player steers left and right to avoid obstacles. The
-game shows run progress above the play area and starts from a game list.
+Build a soft-casual browser runner game. A ball moves automatically along a straight infinite path while the player steers left and right to avoid obstacles. The
+game shows progress as a percentage above the play area and starts from a
+level list.
 
 ## Editable Project Decisions
 
+- **Initial level:** one Level 1 run, with a 1,000 m target designed to last
+  about 60 seconds when completed successfully.
 - **Controls:** Left and Right arrow keys steer the ball.
-- **Run controls:** Play starts a three-second countdown, then becomes Pause.
-  Restart resets the run to its ready state; it never starts a run automatically.
-- **Game list:** a circular menu button opens the game list. Its first option,
-  Free Play, opens the current game design in its ready state. Show the
-  selected option at the top centre of the page.
-- **Path:** use a moving safe corridor with randomly spaced curves. Each curve
-  randomly bends left or right at a random intensity, then returns to centre.
-  Keep the ball constrained to that corridor.
+- **Path:** the safe corridor; leaving it ends the run.
 - **Obstacles:** use static blockers in the initial level. Hitting one ends
   the run.
-- **Run outcome:** show a result overlay after a collision or a completed
-  level. A completed target reaches 100% and shows a completion state.
-- **Counter:** show metres at the top right of the game screen. One metre
-  equals the distance between horizontal path lines.
-- **High score:** show and locally save the best metres score; update it as
-  soon as the player passes it. Keep a separate high score for Free Play and
-  each level. New-record game-over screens show confetti and use the label
-  "NEW High score".
-- **Speed:** increase path and obstacle speed by 1.2× every five seconds.
+- **Run outcome:** show a game-over overlay with retry and level-list actions.
+  Completing the target reaches 100% and shows a completion state.
 - **Progress:** save level completion and best results locally in the browser.
+- Restart button
 
-## Level 1 Rules
+## Current status
+The game area is visible on the page. Cube obstacles have been implemented. Depth and 3d visual effects have been implemented. Play and restart options. 
 
-- **Selection:** Level 1 is selected from the circular game list; display
-  `Level 1` at the top centre when active. Free Play remains a separate,
-  unlimited mode with randomized curves and obstacles.
-- **Course:** use a straight, non-curving path for the entire 50 m run.
-- **Distance UI:** show metres and a percentage tracker at the top right. In
-  Level 1, make the metre counter slightly smaller and place the percentage
-  directly below it; it reaches 100% at 50 m. One metre equals one horizontal
-  path-line spacing.
-- **Obstacle schedule:** use static cube blockers at 6, 12, 18, 24, 30, 36,
-  42, and 48 m. Their lane order is centre, left, left, right, left, right,
-  right, centre. Do not use random obstacle positions in this level.
-- **Collision:** end the run only when the ball overlaps a cube in both lane
-  width and forward depth, or when more than half of the ball leaves the yellow
-  path. Cube shadows are visual-only and never collide.
-- **Finish:** draw a huge all-caps `THE END` marker on the path at 50 m. If the
-  player reaches 50 m without a cube collision, stop the run and show
-  `LEVEL 1 COMPLETE`.
-- **Scores:** store a Level 1 high score separately from Free Play. Update it
-  as soon as the current Level 1 run exceeds it; a new record uses the `NEW
-  High score` label and confetti on the result overlay.
-- **Unlock:** on the first 100% completion, persist the Level 1 completion
-  flag. Thereafter, every Level 1 result overlay includes a disabled `Next
-  level` button below `Play again`; keep it disabled until Level 2 exists.
+## Decisions made along the way
+- For levels, position of obstacles is determined manually. 
+- Levels have limit.
+- Progress percentage will be calcualted for levels only. 
+- High score of each level will be specific to that level.
+- The End will appear at each level's limit. Same format for every level. 
+- Free Play mixes cube events and spike events equally. Spikes are square
+  pyramids with bases half as wide as cubes; each spike event has one pair in
+  a lane or, 50% of the time, two pairs across two lanes. Level 1 remains
+  cube-only.
+- Level 2 is a 50 m, no-curves level unlocked only after Level 1 reaches
+  100%. It uses an authored obstacle event every 6 m: four spikes in left and
+  centre, four spikes in right and centre, cubes in right/centre/left/centre/
+  right lanes, then four spikes in left and right lanes.
+- Level 3 is a 50 m level unlocked only after Level 2 reaches 100%. It uses
+  authored events every 4 m from 4–48 m: cubes right/centre, four spikes left
+  and centre, cubes centre/left, four spikes right and centre, four spikes
+  left and right, two spikes centre, two spikes right, then cubes centre/right/
+  centre. From 10 m, curve right for 4 m, then left for 4 m, right for 4 m,
+  and return to centre over 4 m.
 
 ## Current Exclusions
 
-- Additional levels and themes beyond Level 1
 - Touch controls
 - Audio
 - Accounts or online leaderboards
@@ -69,7 +55,8 @@ game shows run progress above the play area and starts from a game list.
 - Keep future levels configuration-driven instead of duplicating game-loop
   logic.
 - Maintain responsive layouts and keyboard-accessible UI.
-- Test controls, collisions, metre/percentage displays, retry, completion, and
-  local progress saving after gameplay changes.
+- Test controls, collisions, percentage progress, retry, completion, and local
+  progress saving after gameplay changes.
 - Keep this file current when project decisions change; it is intentionally
   plain Markdown and easy to edit.
+- Do not change anything in Level 1 unless directly prompted.

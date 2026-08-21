@@ -15,6 +15,8 @@ const menuButton = document.querySelector('#menu-button');
 const gameMenu = document.querySelector('#game-menu');
 const freePlayButton = document.querySelector('#free-play-button');
 const levelOneButton = document.querySelector('#level-one-button');
+const levelTwoButton = document.querySelector('#level-two-button');
+const levelThreeButton = document.querySelector('#level-three-button');
 const playButton = document.querySelector('#play-button');
 const restartButton = document.querySelector('#restart-button');
 const countdown = document.querySelector('#countdown');
@@ -34,13 +36,58 @@ const level = {
   curveIntensity: { min: 0.09, max: 0.19 },
   obstacleOffsets: [-.56, 0, .56],
   obstacleGap: { min: 38, max: 58 },
+  spikeEventChance: 0.5,
+  fourSpikeGroupChance: 0.5,
+  spikePairOffsets: [-.14, .14],
 };
 
 const LEVELS = {
   level1: {
+    name: 'Level 1',
     targetMetres: 50,
     obstacleOffsets: [0, -.56, -.56, .56, -.56, .56, .56, 0],
     obstacleSpacing: 6,
+  },
+  level2: {
+    name: 'Level 2',
+    targetMetres: 50,
+    obstacleSpacing: 6,
+    obstacleSchedule: [
+      { type: 'spike-group', lanes: [-.56, 0] },
+      { type: 'spike-group', lanes: [.56, 0] },
+      { type: 'cube', offset: .56 },
+      { type: 'cube', offset: 0 },
+      { type: 'cube', offset: -.56 },
+      { type: 'cube', offset: 0 },
+      { type: 'cube', offset: .56 },
+      { type: 'spike-group', lanes: [-.56, .56] },
+    ],
+  },
+  level3: {
+    name: 'Level 3',
+    targetMetres: 50,
+    obstacleSpacing: 4,
+    obstacleSchedule: [
+      { type: 'cube', offset: .56 },
+      { type: 'cube', offset: 0 },
+      { type: 'spike-group', lanes: [-.56, 0] },
+      { type: 'cube', offset: 0 },
+      { type: 'cube', offset: -.56 },
+      { type: 'spike-group', lanes: [.56, 0] },
+      { type: 'spike-group', lanes: [-.56, .56] },
+      { type: 'spike-group', lanes: [0] },
+      { type: 'spike-group', lanes: [.56] },
+      { type: 'cube', offset: 0 },
+      { type: 'cube', offset: .56 },
+      { type: 'cube', offset: 0 },
+    ],
+    curvePoints: [
+      { metres: 10, offset: 0 },
+      { metres: 14, offset: .14 },
+      { metres: 18, offset: -.14 },
+      { metres: 22, offset: .14 },
+      { metres: 26, offset: 0 },
+    ],
   },
 };
 
@@ -50,6 +97,7 @@ const PATH_START_Y = -70;
 const HIGH_SCORE_KEY_PREFIX = 'skyfall-high-score';
 const LEGACY_HIGH_SCORE_KEY = 'skyfall-high-score';
 const LEVEL_ONE_COMPLETE_KEY = 'skyfall-level-one-complete';
+const LEVEL_TWO_COMPLETE_KEY = 'skyfall-level-two-complete';
 
 function highScoreKey(gameType) {
   return `${HIGH_SCORE_KEY_PREFIX}-${gameType}`;
@@ -76,6 +124,16 @@ function loadLevelOneCompletion() {
 }
 
 let levelOneComplete = loadLevelOneCompletion();
+
+function loadLevelTwoCompletion() {
+  try {
+    return localStorage.getItem(LEVEL_TWO_COMPLETE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+let levelTwoComplete = loadLevelTwoCompletion();
 
 function renderHighScore() {
   headerHighScore.textContent = `High score: ${highScore}m`;
@@ -119,8 +177,18 @@ function activeLevel() {
   return state.gameType === 'freeplay' ? null : LEVELS[state.gameType];
 }
 
+function nextLevelGameType() {
+  if (state.gameType === 'level1' && levelOneComplete) return 'level2';
+  if (state.gameType === 'level2' && levelTwoComplete) return 'level3';
+  return null;
+}
+
 function updateNextLevelButton() {
-  nextLevelButton.hidden = !(state.gameType === 'level1' && levelOneComplete);
+  const nextLevel = nextLevelGameType();
+  nextLevelButton.hidden = !nextLevel;
+  nextLevelButton.disabled = !nextLevel;
+  levelTwoButton.disabled = !levelOneComplete;
+  levelThreeButton.disabled = !levelTwoComplete;
 }
 
 function markLevelOneComplete() {
@@ -132,9 +200,18 @@ function markLevelOneComplete() {
   }
 }
 
+function markLevelTwoComplete() {
+  levelTwoComplete = true;
+  try {
+    localStorage.setItem(LEVEL_TWO_COMPLETE_KEY, 'true');
+  } catch {
+    // Continue without persistence when browser storage is unavailable.
+  }
+}
+
 function updateSelectedOption() {
   const selectedLevel = activeLevel();
-  selectedOption.textContent = selectedLevel ? 'Level 1' : 'Free Play';
+  selectedOption.textContent = selectedLevel ? selectedLevel.name : 'Free Play';
   runCounters.classList.toggle('is-level', Boolean(selectedLevel));
   levelProgress.hidden = !selectedLevel;
   levelProgress.textContent = '0%';
@@ -177,17 +254,33 @@ function trackScrollAt(y) {
   return state.distance * PATH_SCROLL_PER_DISTANCE - (y - PATH_START_Y);
 }
 
+function levelCurveOffsetAt(trackScroll, curvePoints) {
+  const metres = trackScroll / PATH_LINE_SPACING;
+  let previous = { metres: 0, offset: 0 };
+  for (const point of curvePoints) {
+    if (metres <= point.metres) {
+      const transition = (metres - previous.metres) / (point.metres - previous.metres);
+      return previous.offset + (point.offset - previous.offset) * smoothstep(transition);
+    }
+    previous = point;
+  }
+  return previous.offset;
+}
+
 function pathCenterAt(y) {
   const trackScroll = trackScrollAt(y);
-  const curveOffset = state.curves.reduce((offset, curve) => {
-    const start = curve.startMetres * PATH_LINE_SPACING;
-    const bendEnd = start + curve.bendMetres * PATH_LINE_SPACING;
-    const returnEnd = bendEnd + curve.returnMetres * PATH_LINE_SPACING;
+  const selectedLevel = activeLevel();
+  const curveOffset = selectedLevel?.curvePoints
+    ? levelCurveOffsetAt(trackScroll, selectedLevel.curvePoints)
+    : state.curves.reduce((offset, curve) => {
+      const start = curve.startMetres * PATH_LINE_SPACING;
+      const bendEnd = start + curve.bendMetres * PATH_LINE_SPACING;
+      const returnEnd = bendEnd + curve.returnMetres * PATH_LINE_SPACING;
 
-    if (trackScroll < start || trackScroll > returnEnd) return offset;
-    if (trackScroll <= bendEnd) return offset + smoothstep((trackScroll - start) / (bendEnd - start)) * curve.offset;
-    return offset + (1 - smoothstep((trackScroll - bendEnd) / (returnEnd - bendEnd))) * curve.offset;
-  }, 0);
+      if (trackScroll < start || trackScroll > returnEnd) return offset;
+      if (trackScroll <= bendEnd) return offset + smoothstep((trackScroll - start) / (bendEnd - start)) * curve.offset;
+      return offset + (1 - smoothstep((trackScroll - bendEnd) / (returnEnd - bendEnd))) * curve.offset;
+    }, 0);
 
   return state.width / 2 + state.width * curveOffset;
 }
@@ -323,13 +416,65 @@ function drawCube(obstacle, baseY) {
   fillFace(cube.front, '#ed927f');
 }
 
+function getSpikeGeometry(laneOffset, pairOffset, baseY) {
+  const position = baseY / state.height;
+  const pathHalfWidth = pathHalfWidthAt(baseY);
+  const centerX = pathCenterAt(baseY) + pathHalfWidth * (laneOffset + pairOffset);
+  const scale = .62 + position;
+  const size = Math.max(17, state.width * .055 * scale);
+  const apex = { x: centerX, y: baseY - size * 1.2 };
+  const frontLeft = { x: centerX - size / 2, y: baseY };
+  const frontRight = { x: centerX + size / 2, y: baseY };
+  const backLeft = { x: centerX - size * .33, y: baseY - size * .18 };
+  const backRight = { x: centerX + size * .33, y: baseY - size * .18 };
+
+  return {
+    front: [apex, frontRight, frontLeft],
+    right: [apex, backRight, frontRight],
+    left: [apex, frontLeft, backLeft],
+    back: [apex, backLeft, backRight],
+    shadow: { centerX, baseY, size },
+  };
+}
+
+function getSpikes(obstacle, baseY) {
+  return obstacle.lanes.flatMap((laneOffset) => level.spikePairOffsets.map((pairOffset) => (
+    getSpikeGeometry(laneOffset, pairOffset, baseY)
+  )));
+}
+
+function drawSpike(spike) {
+  const { centerX, baseY, size } = spike.shadow;
+  context.beginPath();
+  context.ellipse(centerX, baseY + size * .1, size * .58, size * .15, 0, 0, Math.PI * 2);
+  context.fillStyle = 'rgba(89, 124, 106, .18)';
+  context.fill();
+
+  fillFace(spike.back, '#f5c985');
+  fillFace(spike.left, '#dc7f76');
+  fillFace(spike.right, '#c66063');
+  fillFace(spike.front, '#ef9787');
+}
+
+function drawSpikeGroup(obstacle, baseY) {
+  getSpikes(obstacle, baseY).forEach(drawSpike);
+}
+
+function drawObstacle(obstacle, baseY) {
+  if (obstacle.type === 'spike-group') {
+    drawSpikeGroup(obstacle, baseY);
+  } else {
+    drawCube(obstacle, baseY);
+  }
+}
+
 function drawObstacles(foreground) {
   const ballY = state.height * .76 - Math.abs(Math.sin(state.elapsed * 7.2)) * 7;
   const radius = Math.min(27, Math.max(18, state.width * .053));
   state.obstacles.forEach((obstacle) => {
     const baseY = getObstacleBaseY(obstacle);
     if (baseY === null || (baseY > ballY + radius) !== foreground) return;
-    drawCube(obstacle, baseY);
+    drawObstacle(obstacle, baseY);
   });
 }
 
@@ -369,8 +514,12 @@ function updateCurves() {
 function setupLevelObstacles() {
   const selectedLevel = activeLevel();
   if (!selectedLevel) return;
-  state.obstacles = selectedLevel.obstacleOffsets.map((offset, index) => ({
+  const schedule = selectedLevel.obstacleSchedule ?? selectedLevel.obstacleOffsets.map((offset) => ({
+    type: 'cube',
     offset,
+  }));
+  state.obstacles = schedule.map((obstacle, index) => ({
+    ...obstacle,
     targetMetres: (index + 1) * selectedLevel.obstacleSpacing,
   }));
 }
@@ -396,11 +545,20 @@ function drawLevelEndMarker() {
 }
 
 function addObstacle() {
-  const offsetIndex = Math.floor(Math.random() * level.obstacleOffsets.length);
-  state.obstacles.push({
-    offset: level.obstacleOffsets[offsetIndex],
-    spawnScroll: state.nextObstacleDistance * PATH_SCROLL_PER_DISTANCE,
-  });
+  const spawnScroll = state.nextObstacleDistance * PATH_SCROLL_PER_DISTANCE;
+  if (Math.random() < level.spikeEventChance) {
+    const firstLaneIndex = Math.floor(Math.random() * level.obstacleOffsets.length);
+    const lanes = [level.obstacleOffsets[firstLaneIndex]];
+    const laneCount = Math.random() < level.fourSpikeGroupChance ? 2 : 1;
+    if (laneCount === 2) {
+      const remainingLanes = level.obstacleOffsets.filter((_, index) => index !== firstLaneIndex);
+      lanes.push(remainingLanes[Math.floor(Math.random() * remainingLanes.length)]);
+    }
+    state.obstacles.push({ type: 'spike-group', lanes, spawnScroll });
+  } else {
+    const offsetIndex = Math.floor(Math.random() * level.obstacleOffsets.length);
+    state.obstacles.push({ type: 'cube', offset: level.obstacleOffsets[offsetIndex], spawnScroll });
+  }
   const { min, max } = level.obstacleGap;
   state.nextObstacleDistance += min + Math.random() * (max - min);
 }
@@ -425,13 +583,18 @@ function hasCollision() {
   return state.obstacles.some((obstacle) => {
     const baseY = getObstacleBaseY(obstacle);
     if (baseY === null || baseY > ballDepth + ballDepthRadius) return false;
-    const cube = getCubeGeometry(obstacle, baseY);
-    const cubeDepthStart = baseY - cube.shadow.size * .52;
-    const cubeDepthEnd = baseY;
-    const overlapsDepth = cubeDepthStart <= ballDepth + ballDepthRadius
-      && cubeDepthEnd >= ballDepth - ballDepthRadius;
-    const overlapsWidth = Math.abs(ballX - cube.shadow.centerX) <= radius + cube.shadow.size / 2;
-    return overlapsDepth && overlapsWidth;
+    const shapes = obstacle.type === 'spike-group'
+      ? getSpikes(obstacle, baseY)
+      : [getCubeGeometry(obstacle, baseY)];
+    return shapes.some((shape) => {
+      const depthLength = obstacle.type === 'spike-group' ? .38 : .52;
+      const shapeDepthStart = baseY - shape.shadow.size * depthLength;
+      const shapeDepthEnd = baseY;
+      const overlapsDepth = shapeDepthStart <= ballDepth + ballDepthRadius
+        && shapeDepthEnd >= ballDepth - ballDepthRadius;
+      const overlapsWidth = Math.abs(ballX - shape.shadow.centerX) <= radius + shape.shadow.size / 2;
+      return overlapsDepth && overlapsWidth;
+    });
   });
 }
 
@@ -554,8 +717,9 @@ function update(deltaSeconds) {
   if (hasLeftPath() || hasCollision()) {
     endGame();
   } else if (selectedLevel && metres >= selectedLevel.targetMetres) {
-    markLevelOneComplete();
-    endGame('LEVEL 1 COMPLETE');
+    if (state.gameType === 'level1') markLevelOneComplete();
+    if (state.gameType === 'level2') markLevelTwoComplete();
+    endGame(`${selectedLevel.name.toUpperCase()} COMPLETE`);
   }
 }
 
@@ -582,19 +746,21 @@ window.addEventListener('keydown', (event) => {
 window.addEventListener('keyup', (event) => state.keys.delete(event.key));
 retryButton.addEventListener('click', resetGame);
 menuButton.addEventListener('click', toggleMenu);
-freePlayButton.addEventListener('click', () => {
-  state.gameType = 'freeplay';
+function selectGameType(gameType) {
+  state.gameType = gameType;
   loadSelectedHighScore();
   updateSelectedOption();
   resetGame();
   closeMenu();
-});
-levelOneButton.addEventListener('click', () => {
-  state.gameType = 'level1';
-  loadSelectedHighScore();
-  updateSelectedOption();
-  resetGame();
-  closeMenu();
+}
+
+freePlayButton.addEventListener('click', () => selectGameType('freeplay'));
+levelOneButton.addEventListener('click', () => selectGameType('level1'));
+levelTwoButton.addEventListener('click', () => selectGameType('level2'));
+levelThreeButton.addEventListener('click', () => selectGameType('level3'));
+nextLevelButton.addEventListener('click', () => {
+  const nextLevel = nextLevelGameType();
+  if (nextLevel) selectGameType(nextLevel);
 });
 playButton.addEventListener('click', togglePlay);
 restartButton.addEventListener('click', resetGame);
