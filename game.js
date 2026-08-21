@@ -36,9 +36,10 @@ const level = {
   curveIntensity: { min: 0.09, max: 0.19 },
   obstacleOffsets: [-.56, 0, .56],
   obstacleGap: { min: 38, max: 58 },
-  spikeEventChance: 0.5,
   fourSpikeGroupChance: 0.5,
   spikePairOffsets: [-.14, .14],
+  laserPulseDuration: 1,
+  laserPulseCycle: 2,
 };
 
 const LEVELS = {
@@ -449,6 +450,79 @@ function drawCube(obstacle, baseY) {
   fillFace(cube.front, '#ed927f');
 }
 
+function getLaserEmitter(cube) {
+  const topY = cube.front[2].y;
+  const bottomY = cube.front[0].y;
+  return { x: cube.shadow.centerX, y: topY + (bottomY - topY) * .48 };
+}
+
+function drawLaserCube(obstacle, baseY) {
+  const cube = getCubeGeometry(obstacle, baseY);
+  const { centerX, size } = cube.shadow;
+
+  context.beginPath();
+  context.ellipse(centerX, baseY + size * .12, size * .68, size * .18, 0, 0, Math.PI * 2);
+  context.fillStyle = 'rgba(89, 124, 106, .18)';
+  context.fill();
+
+  fillFace(cube.top, '#ffd5a5');
+  fillFace(cube.front, '#ed927f');
+
+  const emitter = getLaserEmitter(cube);
+  context.beginPath();
+  context.arc(emitter.x, emitter.y, Math.max(3, size * .1), 0, Math.PI * 2);
+  context.fillStyle = '#4e3d70';
+  context.fill();
+  context.strokeStyle = '#fff2f6';
+  context.lineWidth = Math.max(1.5, size * .025);
+  context.stroke();
+}
+
+function isLaserActive(obstacle) {
+  if (obstacle.laserEnteredAt === null || obstacle.laserEnteredAt === undefined) return false;
+  const cyclePosition = (state.elapsed - obstacle.laserEnteredAt) % level.laserPulseCycle;
+  return cyclePosition >= level.laserPulseDuration;
+}
+
+function laserBeamPoints(obstacle, cube) {
+  const emitter = getLaserEmitter(cube);
+  const points = [emitter];
+  const startY = Math.max(emitter.y + 1, PATH_START_Y);
+  const endY = state.height + 2;
+  const step = Math.max(20, state.height / 18);
+  for (let y = startY; y < endY; y += step) {
+    points.push({
+      x: pathCenterAt(y) + pathHalfWidthAt(y) * obstacle.offset,
+      y,
+    });
+  }
+  points.push({
+    x: pathCenterAt(endY) + pathHalfWidthAt(endY) * obstacle.offset,
+    y: endY,
+  });
+  return points;
+}
+
+function drawLaserBeam(obstacle, baseY) {
+  if (!isLaserActive(obstacle)) return;
+  const cube = getCubeGeometry(obstacle, baseY);
+  const points = laserBeamPoints(obstacle, cube);
+
+  context.save();
+  context.beginPath();
+  points.forEach((point, index) => index ? context.lineTo(point.x, point.y) : context.moveTo(point.x, point.y));
+  context.strokeStyle = '#ff4f62';
+  context.lineWidth = Math.max(3, cube.shadow.size * .08);
+  context.shadowColor = '#ff4f62';
+  context.shadowBlur = Math.max(10, cube.shadow.size * .5);
+  context.stroke();
+  context.strokeStyle = '#fff5f6';
+  context.lineWidth = Math.max(1, cube.shadow.size * .022);
+  context.shadowBlur = 0;
+  context.stroke();
+  context.restore();
+}
+
 function getSpikeGeometry(laneOffset, pairOffset, baseY) {
   const position = baseY / state.height;
   const pathHalfWidth = pathHalfWidthAt(baseY);
@@ -496,6 +570,8 @@ function drawSpikeGroup(obstacle, baseY) {
 function drawObstacle(obstacle, baseY) {
   if (obstacle.type === 'spike-group') {
     drawSpikeGroup(obstacle, baseY);
+  } else if (obstacle.type === 'laser-cube') {
+    drawLaserCube(obstacle, baseY);
   } else {
     drawCube(obstacle, baseY);
   }
@@ -506,8 +582,9 @@ function drawObstacles(foreground) {
   const radius = Math.min(27, Math.max(18, state.width * .053));
   state.obstacles.forEach((obstacle) => {
     const baseY = getObstacleBaseY(obstacle);
-    if (baseY === null || (baseY > ballY + radius) !== foreground) return;
-    drawObstacle(obstacle, baseY);
+    if (baseY === null) return;
+    if (foreground && obstacle.type === 'laser-cube') drawLaserBeam(obstacle, baseY);
+    if ((baseY > ballY + radius) === foreground) drawObstacle(obstacle, baseY);
   });
 }
 
@@ -579,7 +656,8 @@ function drawLevelEndMarker() {
 
 function addObstacle() {
   const spawnScroll = state.nextObstacleDistance * PATH_SCROLL_PER_DISTANCE;
-  if (Math.random() < level.spikeEventChance) {
+  const obstacleType = Math.floor(Math.random() * 3);
+  if (obstacleType === 0) {
     const firstLaneIndex = Math.floor(Math.random() * level.obstacleOffsets.length);
     const lanes = [level.obstacleOffsets[firstLaneIndex]];
     const laneCount = Math.random() < level.fourSpikeGroupChance ? 2 : 1;
@@ -590,7 +668,12 @@ function addObstacle() {
     state.obstacles.push({ type: 'spike-group', lanes, spawnScroll });
   } else {
     const offsetIndex = Math.floor(Math.random() * level.obstacleOffsets.length);
-    state.obstacles.push({ type: 'cube', offset: level.obstacleOffsets[offsetIndex], spawnScroll });
+    state.obstacles.push({
+      type: obstacleType === 1 ? 'cube' : 'laser-cube',
+      offset: level.obstacleOffsets[offsetIndex],
+      spawnScroll,
+      laserEnteredAt: null,
+    });
   }
   const { min, max } = level.obstacleGap;
   state.nextObstacleDistance += min + Math.random() * (max - min);
@@ -606,6 +689,29 @@ function updateObstacles() {
   const scroll = state.distance * PATH_SCROLL_PER_DISTANCE;
   state.obstacles = state.obstacles.filter((obstacle) => obstacle.targetMetres !== undefined
     || scroll - obstacle.spawnScroll <= pathTravelLength);
+  state.obstacles.forEach((obstacle) => {
+    if (obstacle.type !== 'laser-cube' || obstacle.laserEnteredAt !== null) return;
+    const baseY = getObstacleBaseY(obstacle);
+    if (baseY !== null && baseY >= 0) obstacle.laserEnteredAt = state.elapsed;
+  });
+}
+
+function hasLaserBeamCollision(obstacle, baseY, ballX, ballDepth, radius) {
+  if (!isLaserActive(obstacle)) return false;
+  const cube = getCubeGeometry(obstacle, baseY);
+  const points = laserBeamPoints(obstacle, cube);
+  const beamRadius = Math.max(3, cube.shadow.size * .08) / 2;
+  return points.slice(1).some((point, index) => {
+    const start = points[index];
+    const segmentX = point.x - start.x;
+    const segmentY = point.y - start.y;
+    const segmentLengthSquared = segmentX ** 2 + segmentY ** 2;
+    const progress = segmentLengthSquared === 0 ? 0 : Math.max(0, Math.min(1,
+      ((ballX - start.x) * segmentX + (ballDepth - start.y) * segmentY) / segmentLengthSquared));
+    const closestX = start.x + segmentX * progress;
+    const closestY = start.y + segmentY * progress;
+    return Math.hypot(ballX - closestX, ballDepth - closestY) <= radius + beamRadius;
+  });
 }
 
 function hasCollision() {
@@ -615,7 +721,11 @@ function hasCollision() {
   const ballDepthRadius = radius * .65;
   return state.obstacles.some((obstacle) => {
     const baseY = getObstacleBaseY(obstacle);
-    if (baseY === null || baseY > ballDepth + ballDepthRadius) return false;
+    if (baseY === null) return false;
+    if (obstacle.type === 'laser-cube' && hasLaserBeamCollision(obstacle, baseY, ballX, ballDepth, radius)) {
+      return true;
+    }
+    if (baseY > ballDepth + ballDepthRadius) return false;
     if (obstacle.type === 'spike-group' && clearsSpikes()) return false;
     const shapes = obstacle.type === 'spike-group'
       ? getSpikes(obstacle, baseY)

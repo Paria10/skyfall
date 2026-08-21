@@ -44,6 +44,11 @@ The game area is visible on the page. Cube obstacles have been implemented. Dept
   and return to centre over 4 m.
 - Spacebar starts one fixed, single jump while a run is active. Any airborne
   part of the arc clears spikes, but cubes and leaving the path remain fatal.
+- Free Play selects regular cubes, laser cubes, and spike groups equally.
+  Laser cubes use the regular cube palette, have one centred front emitter,
+  and fire a neon-red beam from it for one second every two seconds after
+  entering view. Active beams are fatal, follow their lane through curves,
+  and cannot be jumped.
 
 ## Current Exclusions
 
