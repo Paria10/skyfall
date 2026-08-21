@@ -51,6 +51,8 @@ The game area is visible on the page. Cube obstacles have been implemented. Dept
   from 10–14 m, left from 14–18 m, then returns to centre over 18–22 m.
 - Spacebar starts one fixed, single jump while a run is active. Any airborne
   part of the arc clears spikes, but cubes and leaving the path remain fatal.
+- On touch devices, dragging across the gameplay field steers the ball left
+  and right; tapping the field during an active run starts the same single jump.
 - Free Play selects regular cubes, laser cubes, and spike groups equally.
   Laser cubes use the regular cube palette, have one centred front emitter,
   and fire a neon-red beam from it for one second every two seconds after

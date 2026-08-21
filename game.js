@@ -228,6 +228,15 @@ const state = {
   jumpVelocity: 0,
 };
 
+const touchControl = {
+  pointerId: null,
+  startX: 0,
+  lastX: 0,
+  isDragging: false,
+};
+
+const TOUCH_DRAG_THRESHOLD = 8;
+
 function activeLevel() {
   return state.gameType === 'freeplay' ? null : LEVELS[state.gameType];
 }
@@ -963,6 +972,36 @@ window.addEventListener('keydown', (event) => {
   }
 });
 window.addEventListener('keyup', (event) => state.keys.delete(event.key));
+canvas.addEventListener('pointerdown', (event) => {
+  if (event.pointerType === 'mouse' || state.mode !== 'playing') return;
+  event.preventDefault();
+  touchControl.pointerId = event.pointerId;
+  touchControl.startX = event.clientX;
+  touchControl.lastX = event.clientX;
+  touchControl.isDragging = false;
+  canvas.setPointerCapture(event.pointerId);
+});
+canvas.addEventListener('pointermove', (event) => {
+  if (event.pointerId !== touchControl.pointerId) return;
+  event.preventDefault();
+  const movedDistance = event.clientX - touchControl.startX;
+  if (Math.abs(movedDistance) >= TOUCH_DRAG_THRESHOLD) touchControl.isDragging = true;
+  if (touchControl.isDragging) {
+    state.playerOffset += event.clientX - touchControl.lastX;
+    state.velocity = 0;
+  }
+  touchControl.lastX = event.clientX;
+});
+function finishTouchControl(event) {
+  if (event.pointerId !== touchControl.pointerId) return;
+  event.preventDefault();
+  const shouldJump = !touchControl.isDragging && state.mode === 'playing';
+  if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+  touchControl.pointerId = null;
+  if (shouldJump) startJump();
+}
+canvas.addEventListener('pointerup', finishTouchControl);
+canvas.addEventListener('pointercancel', finishTouchControl);
 retryButton.addEventListener('click', resetGame);
 menuButton.addEventListener('click', toggleMenu);
 function selectGameType(gameType) {
