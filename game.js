@@ -17,6 +17,7 @@ const freePlayButton = document.querySelector('#free-play-button');
 const levelOneButton = document.querySelector('#level-one-button');
 const levelTwoButton = document.querySelector('#level-two-button');
 const levelThreeButton = document.querySelector('#level-three-button');
+const levelFourButton = document.querySelector('#level-four-button');
 const playButton = document.querySelector('#play-button');
 const restartButton = document.querySelector('#restart-button');
 const countdown = document.querySelector('#countdown');
@@ -90,6 +91,45 @@ const LEVELS = {
       { metres: 26, offset: 0 },
     ],
   },
+  level4: {
+    name: 'Level 4',
+    targetMetres: 100,
+    obstacleSpacing: 4,
+    startingSpeedMultiplier: 1.2,
+    obstacleSchedule: [
+      { type: 'spike-group', lanes: [.56, 0] },
+      { type: 'spike-group', lanes: [-.56, 0] },
+      { type: 'laser-cube', offset: .56, laserEnteredAt: null },
+      { type: 'cube', offset: 0 },
+      { type: 'cube', offset: -.56 },
+      { type: 'cube', offset: 0 },
+      { type: 'spike-group', lanes: [.56, 0] },
+      { type: 'laser-cube', offset: .56, laserEnteredAt: null },
+      { type: 'laser-cube', offset: -.56, laserEnteredAt: null },
+      { type: 'cube', offset: 0 },
+      { type: 'spike-group', lanes: [-.56, .56] },
+      { type: 'cube', offset: -.56 },
+      { type: 'laser-cube', offset: 0, laserEnteredAt: null },
+      { type: 'spike-group', lanes: [.56] },
+      { type: 'spike-group', lanes: [-.56] },
+      { type: 'spike-group', lanes: [.56, 0] },
+      { type: 'spike-group', lanes: [-.56, 0] },
+      { type: 'laser-cube', offset: .56, laserEnteredAt: null },
+      { type: 'cube', offset: 0 },
+      { type: 'cube', offset: -.56 },
+      { type: 'cube', offset: 0 },
+      { type: 'spike-group', lanes: [.56, 0] },
+      { type: 'laser-cube', offset: .56, laserEnteredAt: null },
+      { type: 'laser-cube', offset: -.56, laserEnteredAt: null },
+      { type: 'cube', offset: 0 },
+    ],
+    curvePoints: [
+      { metres: 10, offset: 0 },
+      { metres: 14, offset: .14 },
+      { metres: 18, offset: -.14 },
+      { metres: 22, offset: 0 },
+    ],
+  },
 };
 
 const PATH_LINE_SPACING = 78;
@@ -99,6 +139,7 @@ const HIGH_SCORE_KEY_PREFIX = 'skyfall-high-score';
 const LEGACY_HIGH_SCORE_KEY = 'skyfall-high-score';
 const LEVEL_ONE_COMPLETE_KEY = 'skyfall-level-one-complete';
 const LEVEL_TWO_COMPLETE_KEY = 'skyfall-level-two-complete';
+const LEVEL_THREE_COMPLETE_KEY = 'skyfall-level-three-complete';
 const JUMP_DURATION = 0.6;
 const SPIKE_CLEARANCE_RATIO = 0.7;
 
@@ -137,6 +178,16 @@ function loadLevelTwoCompletion() {
 }
 
 let levelTwoComplete = loadLevelTwoCompletion();
+
+function loadLevelThreeCompletion() {
+  try {
+    return localStorage.getItem(LEVEL_THREE_COMPLETE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+let levelThreeComplete = loadLevelThreeCompletion();
 
 function renderHighScore() {
   headerHighScore.textContent = `High score: ${highScore}m`;
@@ -185,6 +236,7 @@ function activeLevel() {
 function nextLevelGameType() {
   if (state.gameType === 'level1' && levelOneComplete) return 'level2';
   if (state.gameType === 'level2' && levelTwoComplete) return 'level3';
+  if (state.gameType === 'level3' && levelThreeComplete) return 'level4';
   return null;
 }
 
@@ -194,6 +246,7 @@ function updateNextLevelButton() {
   nextLevelButton.disabled = !nextLevel;
   levelTwoButton.disabled = !levelOneComplete;
   levelThreeButton.disabled = !levelTwoComplete;
+  levelFourButton.disabled = !levelThreeComplete;
 }
 
 function markLevelOneComplete() {
@@ -209,6 +262,15 @@ function markLevelTwoComplete() {
   levelTwoComplete = true;
   try {
     localStorage.setItem(LEVEL_TWO_COMPLETE_KEY, 'true');
+  } catch {
+    // Continue without persistence when browser storage is unavailable.
+  }
+}
+
+function markLevelThreeComplete() {
+  levelThreeComplete = true;
+  try {
+    localStorage.setItem(LEVEL_THREE_COMPLETE_KEY, 'true');
   } catch {
     // Continue without persistence when browser storage is unavailable.
   }
@@ -583,8 +645,8 @@ function drawObstacles(foreground) {
   state.obstacles.forEach((obstacle) => {
     const baseY = getObstacleBaseY(obstacle);
     if (baseY === null) return;
-    if (foreground && obstacle.type === 'laser-cube') drawLaserBeam(obstacle, baseY);
     if ((baseY > ballY + radius) === foreground) drawObstacle(obstacle, baseY);
+    if (foreground && obstacle.type === 'laser-cube') drawLaserBeam(obstacle, baseY);
   });
 }
 
@@ -843,8 +905,9 @@ function update(deltaSeconds) {
   state.elapsed += deltaSeconds;
   updateJump(deltaSeconds);
   const speedStage = Math.floor(state.elapsed / level.speedIncreaseInterval);
-  const currentSpeed = level.distancePerSecond * level.speedMultiplier ** speedStage;
   const selectedLevel = activeLevel();
+  const startingSpeed = selectedLevel?.startingSpeedMultiplier ?? 1;
+  const currentSpeed = level.distancePerSecond * startingSpeed * level.speedMultiplier ** speedStage;
   const targetDistance = selectedLevel
     ? selectedLevel.targetMetres * PATH_LINE_SPACING / PATH_SCROLL_PER_DISTANCE
     : Infinity;
@@ -868,6 +931,7 @@ function update(deltaSeconds) {
   } else if (selectedLevel && metres >= selectedLevel.targetMetres) {
     if (state.gameType === 'level1') markLevelOneComplete();
     if (state.gameType === 'level2') markLevelTwoComplete();
+    if (state.gameType === 'level3') markLevelThreeComplete();
     endGame(`${selectedLevel.name.toUpperCase()} COMPLETE`);
   }
 }
@@ -914,6 +978,7 @@ freePlayButton.addEventListener('click', () => selectGameType('freeplay'));
 levelOneButton.addEventListener('click', () => selectGameType('level1'));
 levelTwoButton.addEventListener('click', () => selectGameType('level2'));
 levelThreeButton.addEventListener('click', () => selectGameType('level3'));
+levelFourButton.addEventListener('click', () => selectGameType('level4'));
 nextLevelButton.addEventListener('click', () => {
   const nextLevel = nextLevelGameType();
   if (nextLevel) selectGameType(nextLevel);
