@@ -98,6 +98,8 @@ const HIGH_SCORE_KEY_PREFIX = 'skyfall-high-score';
 const LEGACY_HIGH_SCORE_KEY = 'skyfall-high-score';
 const LEVEL_ONE_COMPLETE_KEY = 'skyfall-level-one-complete';
 const LEVEL_TWO_COMPLETE_KEY = 'skyfall-level-two-complete';
+const JUMP_DURATION = 0.6;
+const SPIKE_CLEARANCE_RATIO = 0.7;
 
 function highScoreKey(gameType) {
   return `${HIGH_SCORE_KEY_PREFIX}-${gameType}`;
@@ -171,6 +173,8 @@ const state = {
   curves: [],
   nextCurveMetres: 0,
   gameType: 'freeplay',
+  jumpHeight: 0,
+  jumpVelocity: 0,
 };
 
 function activeLevel() {
@@ -243,6 +247,34 @@ function pathHalfWidthAt(y) {
   const depth = Math.max(0, Math.min(1, y / state.height));
   const width = level.pathTopWidth + (level.pathBottomWidth - level.pathTopWidth) * depth;
   return state.width * width;
+}
+
+function maxJumpHeight() {
+  return Math.max(58, Math.min(92, state.height * .16));
+}
+
+function resetJump() {
+  state.jumpHeight = 0;
+  state.jumpVelocity = 0;
+}
+
+function startJump() {
+  if (state.mode !== 'playing' || state.jumpHeight > 0) return;
+  const height = maxJumpHeight();
+  state.jumpVelocity = (4 * height) / JUMP_DURATION;
+  state.jumpHeight = .01;
+}
+
+function updateJump(deltaSeconds) {
+  if (state.jumpHeight <= 0) return;
+  const gravity = (8 * maxJumpHeight()) / (JUMP_DURATION ** 2);
+  state.jumpHeight += state.jumpVelocity * deltaSeconds;
+  state.jumpVelocity -= gravity * deltaSeconds;
+  if (state.jumpHeight <= 0) resetJump();
+}
+
+function clearsSpikes() {
+  return state.jumpHeight > 0;
 }
 
 function smoothstep(value) {
@@ -331,14 +363,15 @@ function drawPath() {
 
 function drawBall() {
   const restingY = state.height * 0.76;
-  const bounce = Math.abs(Math.sin(state.elapsed * 7.2)) * 7;
-  const y = restingY - bounce;
+  const bounce = state.jumpHeight > 0 ? 0 : Math.abs(Math.sin(state.elapsed * 7.2)) * 7;
+  const y = restingY - bounce - state.jumpHeight;
   const radius = Math.min(27, Math.max(18, state.width * 0.053));
   const x = pathCenterAt(restingY) + state.playerOffset;
+  const jumpRatio = state.jumpHeight / maxJumpHeight();
 
   context.beginPath();
-  context.ellipse(x, restingY + radius * 1.05, radius * .9, radius * .3, 0, 0, Math.PI * 2);
-  context.fillStyle = 'rgba(89, 124, 106, .20)';
+  context.ellipse(x, restingY + radius * 1.05, radius * (.9 - jumpRatio * .25), radius * (.3 - jumpRatio * .12), 0, 0, Math.PI * 2);
+  context.fillStyle = `rgba(89, 124, 106, ${.2 - jumpRatio * .1})`;
   context.fill();
 
   const ball = context.createRadialGradient(x - radius * .32, y - radius * .42, radius * .1, x, y, radius * 1.1);
@@ -583,6 +616,7 @@ function hasCollision() {
   return state.obstacles.some((obstacle) => {
     const baseY = getObstacleBaseY(obstacle);
     if (baseY === null || baseY > ballDepth + ballDepthRadius) return false;
+    if (obstacle.type === 'spike-group' && clearsSpikes()) return false;
     const shapes = obstacle.type === 'spike-group'
       ? getSpikes(obstacle, baseY)
       : [getCubeGeometry(obstacle, baseY)];
@@ -606,6 +640,7 @@ function hasLeftPath() {
 function endGame(resultLabel = 'RUN ENDED') {
   state.mode = 'gameover';
   state.keys.clear();
+  resetJump();
   runEndedLabel.textContent = resultLabel;
   gameOverMetres.textContent = `${getMetres()}m`;
   highScoreValue.textContent = `${state.newHighScore ? 'NEW High score' : 'High score'}: ${highScore}m`;
@@ -621,6 +656,7 @@ function resetGame() {
   state.playerOffset = 0;
   state.velocity = 0;
   state.elapsed = 0;
+  resetJump();
   state.obstacles = [];
   state.nextObstacleDistance = 0;
   if (activeLevel()) {
@@ -660,6 +696,7 @@ function updateControls() {
 }
 
 function startCountdown() {
+  resetJump();
   state.mode = 'countdown';
   state.countdown = 3;
   countdown.textContent = '3';
@@ -672,6 +709,7 @@ function togglePlay() {
     startCountdown();
   } else if (state.mode === 'countdown' || state.mode === 'playing') {
     state.mode = 'paused';
+    resetJump();
     countdown.hidden = true;
     updateControls();
   } else if (state.mode === 'paused') {
@@ -693,6 +731,7 @@ function update(deltaSeconds) {
   }
   if (state.mode !== 'playing') return;
   state.elapsed += deltaSeconds;
+  updateJump(deltaSeconds);
   const speedStage = Math.floor(state.elapsed / level.speedIncreaseInterval);
   const currentSpeed = level.distancePerSecond * level.speedMultiplier ** speedStage;
   const selectedLevel = activeLevel();
@@ -738,6 +777,13 @@ function render(now) {
 
 window.addEventListener('resize', resizeCanvas);
 window.addEventListener('keydown', (event) => {
+  if (event.code === 'Space') {
+    if (state.mode === 'playing') {
+      event.preventDefault();
+      if (!event.repeat) startJump();
+    }
+    return;
+  }
   if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
     event.preventDefault();
     state.keys.add(event.key);

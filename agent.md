@@ -42,6 +42,8 @@ The game area is visible on the page. Cube obstacles have been implemented. Dept
   left and right, two spikes centre, two spikes right, then cubes centre/right/
   centre. From 10 m, curve right for 4 m, then left for 4 m, right for 4 m,
   and return to centre over 4 m.
+- Spacebar starts one fixed, single jump while a run is active. Any airborne
+  part of the arc clears spikes, but cubes and leaving the path remain fatal.
 
 ## Current Exclusions
 
