@@ -252,9 +252,6 @@ function updateNextLevelButton() {
   const nextLevel = nextLevelGameType();
   nextLevelButton.hidden = !nextLevel;
   nextLevelButton.disabled = !nextLevel;
-  levelTwoButton.disabled = !levelOneComplete;
-  levelThreeButton.disabled = !levelTwoComplete;
-  levelFourButton.disabled = !levelThreeComplete;
 }
 
 function markLevelOneComplete() {
