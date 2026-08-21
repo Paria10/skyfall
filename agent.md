@@ -43,7 +43,7 @@ The game area is visible on the page. Cube obstacles have been implemented. Dept
   centre. From 10 m, curve right for 4 m, then left for 4 m, right for 4 m,
   and return to centre over 4 m.
 - Level 4 is a 100 m level unlocked only after Level 3 reaches 100%. It uses
-  authored events every 4 m through 100 m, repeating this sequence as needed:
+  authored events every 4 m through 96 m, repeating this sequence as needed:
   four spikes right/centre, four spikes left/centre, a right laser, cubes
   centre/left/centre, four spikes right/centre, lasers right/left, a centre
   cube, four spikes left/right, a left cube, a centre laser, then two spikes

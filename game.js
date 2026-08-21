@@ -121,7 +121,6 @@ const LEVELS = {
       { type: 'spike-group', lanes: [.56, 0] },
       { type: 'laser-cube', offset: .56, laserEnteredAt: null },
       { type: 'laser-cube', offset: -.56, laserEnteredAt: null },
-      { type: 'cube', offset: 0 },
     ],
     curvePoints: [
       { metres: 10, offset: 0 },
